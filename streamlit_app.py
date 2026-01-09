@@ -11,7 +11,7 @@ import pytz
 import google.generativeai as genai
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V101", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V102", layout="wide")
 
 st.markdown("""
     <style>
@@ -32,7 +32,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- PERSISTENCE ---
-DATA_FILE = "sniper_v101_data.json"
+DATA_FILE = "sniper_v102_data.json"
 def load_data():
     defaults = {"eia_curr": 3375, "eia_prev": 3413, "eia_5y": 3317, "mm_l": 0, "mm_s": 0, "com_l": 0, "com_s": 0, "ret_l": 0, "ret_s": 0, "last_hdd_matrix": {}}
     if os.path.exists(DATA_FILE):
@@ -73,7 +73,7 @@ with st.sidebar:
     gemini_key = st.text_input("Gemini API Key", type="password")
     
     st.header("Sniper Command")
-    with st.form("storage_v101"):
+    with st.form("storage_v102"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
         ec = st.number_input("Current Bcf", value=st.session_state.data.get("eia_curr", 3375))
         e5 = st.number_input("5y Avg Bcf", value=st.session_state.data.get("eia_5y", 3317))
@@ -82,7 +82,7 @@ with st.sidebar:
             st.session_state.data.update({"eia_curr": ec, "eia_5y": e5})
             save_data(st.session_state.data); st.rerun()
             
-    with st.form("cot_v101"):
+    with st.form("cot_v102"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
         ml, ms = st.number_input("MM Long", value=st.session_state.data.get("mm_l",0)), st.number_input("MM Short", value=st.session_state.data.get("mm_s",0))
         cl, cs = st.number_input("Comm Long", value=st.session_state.data.get("com_l",0)), st.number_input("Comm Short", value=st.session_state.data.get("com_s",0))
@@ -108,7 +108,7 @@ with col_m:
         gc, gp, std, ted = 0, 0, 0, 0
         for city, info in CITIES.items():
             w = info[2]; cv = curr_mx.get(city, [0]*14); pv = prev_mx.get(city, cv)
-            tc, tp = sum(cv), sum(pv); gc += tc * w; gp += tp * tp
+            tc, tp = sum(cv), sum(pv); gc += tc * w; gp += tp * w
             st_avg, lt_avg = sum(cv[:7])/7, sum(cv[7:14])/7
             std += (sum(cv[:7])-sum(pv[:7]))*w; ted += (sum(cv[7:])-sum(pv[7:]))*w
             st_s = "term-highlight" if st_avg > lt_avg else ""; lt_s = "term-highlight" if lt_avg > st_avg else ""
@@ -127,34 +127,29 @@ with col_m:
         st.session_state.data["last_hdd_matrix"] = curr_mx
         save_data(st.session_state.data); st.rerun()
 
-    # GEMINI ANALYST (STABILNI MODEL)
-    st.subheader("🤖 Gemini Neural Analyst")
-    if st.button("🚀 POKRENI ANALIZU"):
+    # GEMINI ANALYST (STABILIZIRANO)
+    st.subheader("🤖 Gemini Strategic Analyst")
+    if st.button("🚀 POKRENI ANALIZU ASIMETRIJE"):
         if not gemini_key:
             st.error("Unesi API Key u sidebaru!")
         else:
             try:
                 genai.configure(api_key=gemini_key)
-                # Korištenje eksplicitnog naziva modela bez models/ prefiksa
-                model = genai.GenerativeModel('gemini-1.5-flash-latest')
-                prompt = (f"Analiziraj NatGas: EIA zalihe {st.session_state.data['eia_curr']} Bcf, "
-                          f"deficit {st.session_state.data['eia_curr'] - st.session_state.data['eia_5y']} Bcf. "
-                          f"COT Net MM: {st.session_state.data['mm_l'] - st.session_state.data['mm_s']}. "
-                          f"HDD {gc:.2f} (Delta {gtd:+.2f}). "
-                          f"AO: {ao['now']}. Gdje je asimetrija?")
+                # Standardizirani naziv bez sufixa koji često uzrokuju 404
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 
-                with st.spinner("Gemini analizira asimetriju..."):
+                prompt = (f"Analyze NatGas: EIA storage {st.session_state.data['eia_curr']} Bcf, "
+                          f"deficit vs 5y {st.session_state.data['eia_curr'] - st.session_state.data['eia_5y']} Bcf. "
+                          f"COT Net MM: {st.session_state.data['mm_l'] - st.session_state.data['mm_s']}. "
+                          f"HDD Matrix Total {gc:.2f} (Delta {gtd:+.2f}). "
+                          f"Short-Term vs Long-Term HDD sentiment is crucial. Find the gap.")
+                
+                with st.spinner("AI analizira asimetriju..."):
                     response = model.generate_content(prompt)
                     st.markdown(f"<div class='ai-analysis-box'>{response.text}</div>", unsafe_allow_html=True)
             except Exception as e:
-                st.error(f"Pokušaj drugog modela... Greška: {e}")
-                # Fallback na alternativni naziv ako prvi zakaže
-                try:
-                    model = genai.GenerativeModel('gemini-1.5-pro')
-                    response = model.generate_content(prompt)
-                    st.markdown(f"<div class='ai-analysis-box'>{response.text}</div>", unsafe_allow_html=True)
-                except Exception as e2:
-                    st.error(f"Konačna greška: {e2}")
+                st.error(f"Greška pri spajanju na AI: {e}")
+                st.info("Savjet: Ako AI i dalje ne radi, unesi COT podatke i donesi odluku na temelju HDD Matrixa. Ne čekaj kôd.")
 
     components.html('<div style="height:450px;"><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"autosize": true, "symbol": "CAPITALCOM:NATURALGAS", "interval": "D", "theme": "dark", "container_id": "tv"});</script><div id="tv"></div></div>', height=450)
 
