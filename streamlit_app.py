@@ -11,7 +11,7 @@ import pytz
 from openai import OpenAI
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V99.1 - Recovery", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V99.2", layout="wide")
 
 st.markdown("""
     <style>
@@ -31,18 +31,22 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- PERSISTENCE ---
+# --- PERSISTENCE (UTF-8 SAFE) ---
 DATA_FILE = "sniper_v99_neural.json"
+
 def load_data():
     defaults = {"eia_curr": 3375, "eia_prev": 3413, "eia_5y": 3317, "mm_l": 0, "mm_s": 0, "com_l": 0, "com_s": 0, "ret_l": 0, "ret_s": 0, "last_hdd_matrix": {}}
     if os.path.exists(DATA_FILE):
         try:
-            with open(DATA_FILE, "r") as f: return {**defaults, **json.load(f)}
+            with open(DATA_FILE, "r", encoding='utf-8') as f:
+                loaded = json.load(f)
+                return {**defaults, **loaded}
         except: return defaults
     return defaults
 
 def save_data(data):
-    with open(DATA_FILE, "w") as f: json.dump(data, f)
+    with open(DATA_FILE, "w", encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
 
 if 'data' not in st.session_state: st.session_state.data = load_data()
 
@@ -69,13 +73,13 @@ def get_noaa_idx(url):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("🧠 AI Authentication")
-    api_key_input = st.text_input("Unesi NOVI OpenAI API Key", type="password", help="Generiraj novi ključ na OpenAI dashboardu.")
+    st.header("AI Authentication")
+    api_key_input = st.text_input("OpenAI API Key", type="password")
     
-    st.header("🎯 Sniper Hub")
+    st.header("Sniper Command")
     with st.form("storage_v99"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
-        st.subheader("📦 Storage Box")
+        st.subheader("Storage Box")
         ec = st.number_input("Curr Bcf", value=st.session_state.data.get("eia_curr", 3375))
         ep = st.number_input("Prev Bcf", value=st.session_state.data.get("eia_prev", 3413))
         e5 = st.number_input("5y Bcf", value=st.session_state.data.get("eia_5y", 3317))
@@ -86,7 +90,7 @@ with st.sidebar:
             
     with st.form("cot_v99"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
-        st.subheader("🏛️ COT Positioning")
+        st.subheader("COT Positioning")
         ml, ms = st.number_input("MM Long", value=st.session_state.data.get("mm_l",0)), st.number_input("MM Short", value=st.session_state.data.get("mm_s",0))
         cl, cs = st.number_input("Comm Long", value=st.session_state.data.get("com_l",0)), st.number_input("Comm Short", value=st.session_state.data.get("com_s",0))
         rl, rs = st.number_input("Ret Long", value=st.session_state.data.get("ret_l",0)), st.number_input("Ret Short", value=st.session_state.data.get("ret_s",0))
@@ -103,7 +107,7 @@ ao, nao, pna = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.ao
 col_m, col_r = st.columns([4, 1.2])
 
 with col_m:
-    st.subheader("🌡️ 14-Day Granular PW-HDD Matrix")
+    st.subheader("14-Day Granular PW-HDD Matrix")
     if curr_mx:
         prev_mx = st.session_state.data.get("last_hdd_matrix", {})
         html = "<table class='matrix-table'><tr><th>Grad</th><th>Total</th><th>ST Avg</th><th>LT Avg</th>"
@@ -127,27 +131,41 @@ with col_m:
         gtd = gc - gp
         st.markdown(f"<div class='grand-total-box'><h1>{gc:.2f} <span class='{'bull-text' if gtd > 0 else 'bear-text'}'>({gtd:+.2f})</span></h1></div>", unsafe_allow_html=True)
 
-    if st.button("💾 SPREMI MODEL KAO BAZU ZA DELTU"):
+    if st.button("SAVE MODEL AS DELTA BASE"):
         st.session_state.data["last_hdd_matrix"] = curr_mx
         save_data(st.session_state.data); st.rerun()
 
     # AI STRATEGIC ANALYST
-    st.subheader("🤖 AI Strategic Analyst (GPT-4o)")
-    if st.button("🚀 POKRENI NEURALNU ANALIZU ASIMETRIJE"):
+    st.subheader("AI Strategic Analyst")
+    if st.button("RUN NEURAL ASYMMETRY ANALYSIS"):
         if not api_key_input:
-            st.error("Prvo zalijepi NOVI API KEY u sidebar!")
+            st.error("Please provide a valid OpenAI API Key!")
         else:
             client = OpenAI(api_key=api_key_input)
-            prompt = f"Analiziraj NatGas: EIA={st.session_state.data['eia_curr']}, COT Net MM={st.session_state.data['mm_l']-st.session_state.data['mm_s']}, HDD Total={gc}, Delta={gtd}. Nađi asimetriju."
+            # Prompt bez emojija radi sigurnosti enkodinga
+            prompt = (f"Analyze NatGas: EIA Current {st.session_state.data['eia_curr']}, "
+                      f"5y Avg {st.session_state.data['eia_5y']}. "
+                      f"COT Net MM: {st.session_state.data['mm_l']-st.session_state.data['mm_s']}. "
+                      f"HDD Total: {gc:.2f}, Delta: {gtd:+.2f}. "
+                      f"AO Index: {ao['now']}. Find asymmetries.")
             try:
-                resp = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
-                st.markdown(f"<div class='ai-analysis-box'>{resp.choices[0].message.content}</div>", unsafe_allow_html=True)
+                with st.spinner("Analyzing market structure..."):
+                    resp = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "system", "content": "You are a professional NatGas trading advisor. Direct, rational, no fluff."},
+                                  {"role": "user", "content": prompt}]
+                    )
+                    st.markdown(f"<div class='ai-analysis-box'>{resp.choices[0].message.content}</div>", unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"AI Error: {e}")
 
     components.html('<div style="height:450px;"><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"autosize": true, "symbol": "CAPITALCOM:NATURALGAS", "interval": "D", "theme": "dark", "container_id": "tv"});</script><div id="tv"></div></div>', height=450)
 
 with col_r:
-    st.subheader("📰 Google Intel Feed")
+    st.subheader("Google Intel Feed")
     f = feedparser.parse("https://news.google.com/rss/search?q=Natural+gas+when:7d&hl=en-US&gl=US&ceid=US:en")
     for e in f.entries[:6]: st.markdown(f"<div style='font-size:0.85rem; margin-bottom:10px;'><a href='{e.link}' target='_blank' style='color:#008CFF; text-decoration:none;'>{e.title}</a></div>", unsafe_allow_html=True)
+    st.markdown("---")
+    st.subheader("Links")
+    st.markdown('<a href="https://twitter.com/i/lists/1989752726553579941" class="external-link">MY X LIST</a>', unsafe_allow_html=True)
+    st.markdown('<a href="http://celsiusenergy.co/" class="external-link">CELSIUS ENERGY</a>', unsafe_allow_html=True)
