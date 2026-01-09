@@ -11,7 +11,7 @@ import pytz
 import google.generativeai as genai
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V100 - Gemini Free", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V101", layout="wide")
 
 st.markdown("""
     <style>
@@ -26,13 +26,13 @@ st.markdown("""
     .matrix-table th, .matrix-table td { border: 1px solid #333; padding: 6px; text-align: center; }
     .cell-bull { color: #00FF00 !important; font-weight: bold; }
     .cell-bear { color: #FF4B4B !important; font-weight: bold; }
-    .term-highlight { background-color: rgba(0, 255, 0, 0.1) !important; }
+    .term-highlight { background-color: rgba(0, 255, 0, 0.12) !important; }
     section[data-testid="stSidebar"] { background-color: #0F0F0F; border-right: 1px solid #333; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- PERSISTENCE ---
-DATA_FILE = "sniper_v100_data.json"
+DATA_FILE = "sniper_v101_data.json"
 def load_data():
     defaults = {"eia_curr": 3375, "eia_prev": 3413, "eia_5y": 3317, "mm_l": 0, "mm_s": 0, "com_l": 0, "com_s": 0, "ret_l": 0, "ret_s": 0, "last_hdd_matrix": {}}
     if os.path.exists(DATA_FILE):
@@ -46,7 +46,7 @@ def save_data(data):
 
 if 'data' not in st.session_state: st.session_state.data = load_data()
 
-# --- HDD & NOAA ENGINES ---
+# --- HDD ENGINES ---
 CITIES = {"Chicago": [41.87, -87.62, 0.25], "NYC": [40.71, -74.00, 0.20], "Detroit": [42.33, -83.04, 0.15], "Philly": [39.95, -75.16, 0.10], "Boston": [42.36, -71.05, 0.10]}
 
 @st.cache_data(ttl=3600)
@@ -69,11 +69,11 @@ def get_noaa_idx(url):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("Free AI Engine (Google Gemini)")
-    gemini_key = st.text_input("Unesi Gemini API Key", type="password")
+    st.header("AI Setup")
+    gemini_key = st.text_input("Gemini API Key", type="password")
     
     st.header("Sniper Command")
-    with st.form("storage_v100"):
+    with st.form("storage_v101"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
         ec = st.number_input("Current Bcf", value=st.session_state.data.get("eia_curr", 3375))
         e5 = st.number_input("5y Avg Bcf", value=st.session_state.data.get("eia_5y", 3317))
@@ -82,7 +82,7 @@ with st.sidebar:
             st.session_state.data.update({"eia_curr": ec, "eia_5y": e5})
             save_data(st.session_state.data); st.rerun()
             
-    with st.form("cot_v100"):
+    with st.form("cot_v101"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
         ml, ms = st.number_input("MM Long", value=st.session_state.data.get("mm_l",0)), st.number_input("MM Short", value=st.session_state.data.get("mm_s",0))
         cl, cs = st.number_input("Comm Long", value=st.session_state.data.get("com_l",0)), st.number_input("Comm Short", value=st.session_state.data.get("com_s",0))
@@ -108,7 +108,7 @@ with col_m:
         gc, gp, std, ted = 0, 0, 0, 0
         for city, info in CITIES.items():
             w = info[2]; cv = curr_mx.get(city, [0]*14); pv = prev_mx.get(city, cv)
-            tc, tp = sum(cv), sum(pv); gc += tc * w; gp += tp * w
+            tc, tp = sum(cv), sum(pv); gc += tc * w; gp += tp * tp
             st_avg, lt_avg = sum(cv[:7])/7, sum(cv[7:14])/7
             std += (sum(cv[:7])-sum(pv[:7]))*w; ted += (sum(cv[7:])-sum(pv[7:]))*w
             st_s = "term-highlight" if st_avg > lt_avg else ""; lt_s = "term-highlight" if lt_avg > st_avg else ""
@@ -123,30 +123,38 @@ with col_m:
         gtd = gc - gp
         st.markdown(f"<div class='grand-total-box'><h1>{gc:.2f} <span class='{'bull-text' if gtd > 0 else 'bear-text'}'>({gtd:+.2f})</span></h1></div>", unsafe_allow_html=True)
 
-    if st.button("SAVE MODEL AS DELTA BASE"):
+    if st.button("SAVE MODEL FOR DELTA"):
         st.session_state.data["last_hdd_matrix"] = curr_mx
         save_data(st.session_state.data); st.rerun()
 
-    # AI ANALYST (GEMINI FREE)
-    st.subheader("🤖 Gemini Strategic Analyst")
-    if st.button("🚀 POKRENI BESPLATNU AI ANALIZU"):
+    # GEMINI ANALYST (STABILNI MODEL)
+    st.subheader("🤖 Gemini Neural Analyst")
+    if st.button("🚀 POKRENI ANALIZU"):
         if not gemini_key:
-            st.error("Prvo zalijepi Gemini API Key iz Google AI Studio!")
+            st.error("Unesi API Key u sidebaru!")
         else:
             try:
                 genai.configure(api_key=gemini_key)
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                prompt = (f"Analiziraj NatGas trading: EIA zalihe su na {st.session_state.data['eia_curr']} Bcf, "
-                          f"deficit vs 5y je {st.session_state.data['eia_curr'] - st.session_state.data['eia_5y']} Bcf. "
-                          f"Managed Money Neto pozicija: {st.session_state.data['mm_l'] - st.session_state.data['mm_s']}. "
-                          f"HDD model je {gc:.2f} uz promjenu od {gtd:+.2f}. "
-                          f"AO Indeks: {ao['now']}. Nađi asimetriju i divergencije.")
+                # Korištenje eksplicitnog naziva modela bez models/ prefiksa
+                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                prompt = (f"Analiziraj NatGas: EIA zalihe {st.session_state.data['eia_curr']} Bcf, "
+                          f"deficit {st.session_state.data['eia_curr'] - st.session_state.data['eia_5y']} Bcf. "
+                          f"COT Net MM: {st.session_state.data['mm_l'] - st.session_state.data['mm_s']}. "
+                          f"HDD {gc:.2f} (Delta {gtd:+.2f}). "
+                          f"AO: {ao['now']}. Gdje je asimetrija?")
                 
-                with st.spinner("Gemini skenira horizonte..."):
+                with st.spinner("Gemini analizira asimetriju..."):
                     response = model.generate_content(prompt)
                     st.markdown(f"<div class='ai-analysis-box'>{response.text}</div>", unsafe_allow_html=True)
             except Exception as e:
-                st.error(f"AI Error: {e}")
+                st.error(f"Pokušaj drugog modela... Greška: {e}")
+                # Fallback na alternativni naziv ako prvi zakaže
+                try:
+                    model = genai.GenerativeModel('gemini-1.5-pro')
+                    response = model.generate_content(prompt)
+                    st.markdown(f"<div class='ai-analysis-box'>{response.text}</div>", unsafe_allow_html=True)
+                except Exception as e2:
+                    st.error(f"Konačna greška: {e2}")
 
     components.html('<div style="height:450px;"><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"autosize": true, "symbol": "CAPITALCOM:NATURALGAS", "interval": "D", "theme": "dark", "container_id": "tv"});</script><div id="tv"></div></div>', height=450)
 
