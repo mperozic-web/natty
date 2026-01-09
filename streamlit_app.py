@@ -11,10 +11,7 @@ import pytz
 from openai import OpenAI
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V99 - Neural Sovereign", layout="wide")
-
-# API KEY - Implementiran izravno prema zahtjevu (Savjet: Koristi st.secrets u budućnosti)
-AI_KEY = "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"
+st.set_page_config(page_title="NatGas Sniper V99.1 - Recovery", layout="wide")
 
 st.markdown("""
     <style>
@@ -24,14 +21,12 @@ st.markdown("""
     .bull-text { color: #00FF00 !important; font-weight: bold; }
     .bear-text { color: #FF4B4B !important; font-weight: bold; }
     .sidebar-box { padding: 15px; border: 1px solid #222; border-radius: 5px; margin-bottom: 15px; background: #0A0A0A; }
-    .external-link { display: block; padding: 10px; margin-bottom: 8px; background: #002B50; color: #008CFF !important; text-decoration: none !important; border-radius: 4px; font-weight: bold; text-align: center; border: 1px solid #004080; }
     .grand-total-box { padding: 25px; background: #0F0F0F; border: 2px solid #008CFF; border-radius: 10px; text-align: center; margin-top: 20px; margin-bottom: 20px; }
     .matrix-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-bottom: 20px; color: white; }
     .matrix-table th, .matrix-table td { border: 1px solid #333; padding: 6px; text-align: center; }
     .cell-bull { color: #00FF00 !important; font-weight: bold; }
     .cell-bear { color: #FF4B4B !important; font-weight: bold; }
     .term-highlight { background-color: rgba(0, 255, 0, 0.12) !important; }
-    .legend-box { padding: 12px; border: 1px solid #333; background: #111; font-size: 0.8rem; color: #CCC; line-height: 1.4; border-radius: 5px; margin-top: 5px; }
     section[data-testid="stSidebar"] { background-color: #0F0F0F; border-right: 1px solid #333; }
     </style>
     """, unsafe_allow_html=True)
@@ -72,9 +67,12 @@ def get_noaa_idx(url):
         return {"now": df.iloc[-1, -1], "yesterday": df.iloc[-2, -1], "last_week": df.iloc[-7, -1]}
     except: return {"now": 0.0, "yesterday": 0.0, "last_week": 0.0}
 
-# --- SIDEBAR (Persistent Inputs) ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("🎯 Sniper Command")
+    st.header("🧠 AI Authentication")
+    api_key_input = st.text_input("Unesi NOVI OpenAI API Key", type="password", help="Generiraj novi ključ na OpenAI dashboardu.")
+    
+    st.header("🎯 Sniper Hub")
     with st.form("storage_v99"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
         st.subheader("📦 Storage Box")
@@ -101,18 +99,16 @@ with st.sidebar:
 curr_mx = fetch_hdd_matrix()
 ao, nao, pna = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.ao.cdas.z1000.19500101_current.csv"), get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.nao.cdas.z500.19500101_current.csv"), get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.pna.cdas.z500.19500101_current.csv")
 
-# --- MAIN LAYOUT ---
+# --- MAIN ---
 col_m, col_r = st.columns([4, 1.2])
 
 with col_m:
-    # 1. HDD MATRIX
     st.subheader("🌡️ 14-Day Granular PW-HDD Matrix")
     if curr_mx:
         prev_mx = st.session_state.data.get("last_hdd_matrix", {})
         html = "<table class='matrix-table'><tr><th>Grad</th><th>Total</th><th>ST Avg</th><th>LT Avg</th>"
         for i in range(14): html += f"<th>D{i+1}</th>"
         html += "</tr>"
-        
         gc, gp, std, ted = 0, 0, 0, 0
         for city, info in CITIES.items():
             w = info[2]; cv = curr_mx.get(city, [0]*14); pv = prev_mx.get(city, cv)
@@ -121,7 +117,6 @@ with col_m:
             std += (sum(cv[:7])-sum(pv[:7]))*w; ted += (sum(cv[7:])-sum(pv[7:]))*w
             st_s = "term-highlight" if st_avg > lt_avg else ""; lt_s = "term-highlight" if lt_avg > st_avg else ""
             c_cl = "cell-bull" if tc > tp else "cell-bear" if tc < tp else ""
-            
             html += f"<tr><td>{city} ({w})</td><td class='{c_cl}'>{tc:.1f}</td><td>{st_avg:.1f}</td><td>{lt_avg:.1f}</td>"
             for i in range(14):
                 d_cl = "cell-bull" if cv[i] > pv[i] else "cell-bear" if cv[i] < pv[i] else ""
@@ -136,58 +131,23 @@ with col_m:
         st.session_state.data["last_hdd_matrix"] = curr_mx
         save_data(st.session_state.data); st.rerun()
 
-    # 2. AI STRATEGIC ANALYST
+    # AI STRATEGIC ANALYST
     st.subheader("🤖 AI Strategic Analyst (GPT-4o)")
     if st.button("🚀 POKRENI NEURALNU ANALIZU ASIMETRIJE"):
-        client = OpenAI(api_key=AI_KEY)
-        prompt = f"""
-        Seciraj Natural Gas tržište. Henry Hub focus.
-        EIA: Curr {st.session_state.data['eia_curr']}, Prev {st.session_state.data['eia_prev']}, 5y Avg {st.session_state.data['eia_5y']}.
-        COT: MM Long {st.session_state.data['mm_l']}, Short {st.session_state.data['mm_s']}. Comm Long {st.session_state.data['com_l']}, Short {st.session_state.data['com_s']}.
-        Weather: AO={ao['now']}, NAO={nao['now']}, PNA={pna['now']}.
-        HDD: Total {gc:.2f}, Model Delta {gtd:+.2f}.
-        ST Sentiment: {'BULL' if std > 0 else 'BEAR'}, LT Sentiment: {'BULL' if ted > 0 else 'BEAR'}.
-        
-        Zadatak: 
-        1. Identificiraj gdje Managed Money 'laže' sam sebe u odnosu na HDD trend.
-        2. Ako je Long-Term Avg veći od Short-Term Avg, objasni rizik od 'short squeezea'.
-        3. Reci mi izravno: igram li na sitno ili podcjenjujem rizik promjene modela?
-        Budi brutalan, racionalan i dubok.
-        """
-        try:
-            with st.spinner("Neuralni Sniper analizira..."):
-                resp = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[{"role": "system", "content": "Ti si iskusan Savjetnik za NatGas trading. Govoriš istinu, ne laskaš i tražiš asimetriju."},
-                              {"role": "user", "content": prompt}]
-                )
+        if not api_key_input:
+            st.error("Prvo zalijepi NOVI API KEY u sidebar!")
+        else:
+            client = OpenAI(api_key=api_key_input)
+            prompt = f"Analiziraj NatGas: EIA={st.session_state.data['eia_curr']}, COT Net MM={st.session_state.data['mm_l']-st.session_state.data['mm_s']}, HDD Total={gc}, Delta={gtd}. Nađi asimetriju."
+            try:
+                resp = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
                 st.markdown(f"<div class='ai-analysis-box'>{resp.choices[0].message.content}</div>", unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"AI Error: {e}")
+            except Exception as e:
+                st.error(f"AI Error: {e}")
 
     components.html('<div style="height:450px;"><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"autosize": true, "symbol": "CAPITALCOM:NATURALGAS", "interval": "D", "theme": "dark", "container_id": "tv"});</script><div id="tv"></div></div>', height=450)
-
-    st.subheader("📡 Intelligence Radar")
-    t1, t2 = st.tabs(["NOAA WEATHER", "SPAGHETTI INDICES"])
-    with t1:
-        c1, c2 = st.columns(2)
-        with c1: st.image("https://www.cpc.ncep.noaa.gov/products/predictions/610day/610temp.new.gif"); st.image("https://www.cpc.ncep.noaa.gov/products/predictions/610day/610prcp.new.gif")
-        with c2: st.image("https://www.cpc.ncep.noaa.gov/products/predictions/814day/814temp.new.gif"); st.image("https://www.cpc.ncep.noaa.gov/products/predictions/814day/814prcp.new.gif")
-    with t2:
-        idx_c = st.columns(3); ids = [("AO", ao), ("NAO", nao), ("PNA", pna)]
-        for i, (n, d) in enumerate(ids):
-            with idx_c[i]:
-                st.write(f"**{n}: {d['now']:.2f}**")
-                st.write(f"D: {d['now']-d['yesterday']:+.2f} | T: {d['now']-d['last_week']:+.2f}")
-                lgs = {"AO": "Pucanje vrtloga.", "NAO": "Blokada Atlantika.", "PNA": "Dolina na istoku."}
-                st.markdown(f"<div class='legend-box'>{lgs[n]}</div>", unsafe_allow_html=True)
 
 with col_r:
     st.subheader("📰 Google Intel Feed")
     f = feedparser.parse("https://news.google.com/rss/search?q=Natural+gas+when:7d&hl=en-US&gl=US&ceid=US:en")
     for e in f.entries[:6]: st.markdown(f"<div style='font-size:0.85rem; margin-bottom:10px;'><a href='{e.link}' target='_blank' style='color:#008CFF; text-decoration:none;'>{e.title}</a></div>", unsafe_allow_html=True)
-    st.markdown("---")
-    st.subheader("🔗 Links")
-    st.markdown('<a href="https://twitter.com/i/lists/1989752726553579941" class="external-link">MY X LIST</a>', unsafe_allow_html=True)
-    st.markdown('<a href="http://celsiusenergy.co/" class="external-link">CELSIUS ENERGY</a>', unsafe_allow_html=True)
-    st.markdown('<a href="https://ir.eia.gov/secure/ngs/ngs.html" class="external-link">EIA STORAGE</a>', unsafe_allow_html=True)
