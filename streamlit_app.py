@@ -12,7 +12,7 @@ from groq import Groq
 import urllib.parse
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V112", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V113", layout="wide")
 
 st.markdown("""
     <style>
@@ -30,13 +30,13 @@ st.markdown("""
     .cell-bear { color: #FF4B4B !important; font-weight: bold; }
     .term-highlight { background-color: rgba(255, 140, 0, 0.12) !important; }
     .legend-box { padding: 10px; border: 1px solid #222; background: #111; font-size: 0.75rem; color: #AAA; border-radius: 5px; margin-bottom: 15px; }
-    .data-source-link { font-size: 0.75rem; color: #008CFF; text-decoration: none; }
+    .data-source-link { font-size: 0.75rem; color: #008CFF; text-decoration: none; font-weight: bold; }
     section[data-testid="stSidebar"] { background-color: #0F0F0F; border-right: 1px solid #333; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- PERSISTENCE ENGINE (KeyError Proof) ---
-DATA_FILE = "sniper_v112_master.json"
+# --- PERSISTENCE ENGINE (V113 Ironclad) ---
+DATA_FILE = "sniper_v113_data.json"
 
 def load_data():
     defaults = {
@@ -49,7 +49,8 @@ def load_data():
         try:
             with open(DATA_FILE, "r", encoding='utf-8') as f:
                 loaded = json.load(f)
-                # Osiguraj da history postoji u učitanim podacima
+                # FORCE INITIALIZATION
+                if not isinstance(loaded, dict): loaded = defaults
                 if "history" not in loaded: loaded["history"] = {}
                 return {**defaults, **loaded}
         except: return defaults
@@ -59,7 +60,9 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False)
 
-if 'data' not in st.session_state: st.session_state.data = load_data()
+# Re-init if session state is broken
+if 'data' not in st.session_state or "history" not in st.session_state.data:
+    st.session_state.data = load_data()
 
 # --- ENGINES ---
 CITIES = {"Chicago": [41.87, -87.62, 0.25], "NYC": [40.71, -74.00, 0.20], "Detroit": [42.33, -83.04, 0.15], "Philly": [39.95, -75.16, 0.10], "Boston": [42.36, -71.05, 0.10]}
@@ -88,10 +91,10 @@ def get_noaa_idx(url):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("⚡ Neural Hub")
+    st.header("⚡ Neural Sniper Hub")
     groq_key = st.text_input("Groq API Key", type="password")
     
-    with st.form("stor_v112"):
+    with st.form("stor_v113"):
         st.subheader("📦 Storage Box")
         e_curr = st.number_input("Current Storage (Bcf)", value=st.session_state.data.get("eia_curr", 3375))
         e_net = st.number_input("Net Change (Bcf)", value=st.session_state.data.get("eia_net", -50))
@@ -100,7 +103,7 @@ with st.sidebar:
             st.session_state.data.update({"eia_curr": e_curr, "eia_net": e_net, "eia_5y": e_5y})
             save_data(st.session_state.data); st.rerun()
 
-    with st.form("cot_v112"):
+    with st.form("cot_v113"):
         st.subheader("🏛️ COT Positioning")
         c1, c2 = st.columns(2)
         ml = c1.number_input("MM Long", value=st.session_state.data.get("mm_l", 0))
@@ -128,15 +131,15 @@ with col_m:
 
     # 2. HDD MATRIX
     st.subheader(f"🌡️ 14-Day Granular PW-HDD Matrix ({run_tag})")
-    st.markdown("<div style='margin-bottom:10px;'><a href='https://open-meteo.com/' class='data-source-link'>Data Source: Open-Meteo Weather API</a></div>", unsafe_allow_html=True)
     
+    st.markdown(f"<div style='margin-bottom:10px;'><a href='https://open-meteo.com/' class='data-source-link'>Source: Open-Meteo Weather API (Global Models)</a></div>", unsafe_allow_html=True)
     
     st.markdown("""
     <div class='legend-box'>
-        <strong>LEGEND:</strong> ST Avg (D1-D7) | LT Avg (D8-D14). 
-        <span style='color:#00FF00;'>Green</span> = Colder vs last save. 
-        <span style='color:#FF4B4B;'>Red</span> = Warmer vs last save. 
-        <span style='background-color:rgba(255,140,0,0.15);'>Orange shade</span> = Dominant term momentum.
+        <strong>LEGEND:</strong> ST Avg (D1-7) | LT Avg (D8-14). 
+        <span style='color:#00FF00;'>Green</span> = Models colder vs last save. 
+        <span style='color:#FF4B4B;'>Red</span> = Models warmer. 
+        <span style='background-color:rgba(255,140,0,0.12);'>Orange Shade</span> = Dominant term momentum.
     </div>
     """, unsafe_allow_html=True)
 
@@ -162,7 +165,8 @@ with col_m:
             html += "</tr>"
         html += "</table>"; st.markdown(html, unsafe_allow_html=True)
         
-        # PERSISTENCE AUTOMATION
+        # PERSISTENCE AUTOMATION (WITH KEY CHECK)
+        if "history" not in st.session_state.data: st.session_state.data["history"] = {}
         hist_key = f"{datetime.now().strftime('%Y-%m-%d')}_{run_tag}"
         st.session_state.data["history"][hist_key] = gc
         
@@ -172,8 +176,7 @@ with col_m:
         h_y = st.session_state.data["history"].get(y_key, gc)
         h_w = st.session_state.data["history"].get(w_key, gc)
         
-        dod = gc - h_y
-        wow = gc - h_w
+        dod, wow = gc - h_y, gc - h_w
         
         st.markdown(f"""
         <div class='grand-total-box'>
@@ -186,7 +189,7 @@ with col_m:
         </div>
         """, unsafe_allow_html=True)
 
-    if st.button("💾 SAVE MODEL FOR DELTA"):
+    if st.button("💾 SAVE MODEL AS REFERENCE"):
         st.session_state.data["last_hdd_matrix"] = curr_mx
         save_data(st.session_state.data); st.rerun()
 
@@ -214,14 +217,14 @@ with col_m:
             if not groq_key: st.error("Enter Groq Key!")
             else:
                 client = Groq(api_key=groq_key)
-                p = f"Analyze: Storage {st.session_state.data['eia_curr']}, COT MM Net {st.session_state.data['mm_l']-st.session_state.data['mm_s']}. HDD {gc:.2f}, DoD {dod:+.2f}, WoW {wow:+.2f}. Indices: AO={ao['now']}. Be brutal."
+                p = f"Analyze NatGas: Storage {st.session_state.data['eia_curr']}, COT MM Net {st.session_state.data['mm_l']-st.session_state.data['mm_s']}. HDD {gc:.2f}, DoD {dod:+.2f}, WoW {wow:+.2f}. Be strategic."
                 res = client.chat.completions.create(messages=[{"role": "user", "content": p}], model="llama-3.3-70b-versatile")
                 st.markdown(f"<div class='ai-analysis-box'>{res.choices[0].message.content}</div>", unsafe_allow_html=True)
 
 with col_r:
     st.subheader("📰 Intelligence Feed")
     q_in = st.text_input("Keywords:", value=st.session_state.data.get("news_q", "Natural gas"))
-    if st.button("REFRESH FEED"):
+    if st.button("REFRESH NEWS"):
         st.session_state.data["news_q"] = q_in; save_data(st.session_state.data); st.rerun()
     encoded = urllib.parse.quote(q_in)
     f = feedparser.parse(f"https://news.google.com/rss/search?q={encoded}+when:7d&hl=en-US&gl=US&ceid=US:en")
@@ -233,4 +236,4 @@ with col_r:
     st.markdown('<a href="http://celsiusenergy.co/" class="external-link">CELSIUS ENERGY</a>', unsafe_allow_html=True)
     st.markdown('<a href="https://ir.eia.gov/secure/ngs/ngs.html" class="external-link">EIA STORAGE REPORT</a>', unsafe_allow_html=True)
 
-st.markdown(f"<div style='font-size:0.7rem; color:#444; text-align:center; margin-top:30px;'>Sniper System V112 | Model Run: {run_tag} | Automated WoW/DoD Engine Active.</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='font-size:0.7rem; color:#444; text-align:center; margin-top:30px;'>Sniper System V113 | Model Run: {run_tag} | Automated DoD/WoW Active.</div>", unsafe_allow_html=True)
