@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V90", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V91", layout="wide")
 
 st.markdown("""
     <style>
@@ -26,7 +26,7 @@ st.markdown("""
         border-radius: 4px; font-weight: bold; text-align: center; border: 1px solid #004080;
     }
     .grand-total-box { padding: 25px; background: #0F0F0F; border: 2px solid #008CFF; border-radius: 10px; text-align: center; margin-top: 20px; }
-    .matrix-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .matrix-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 20px; }
     .matrix-table th, .matrix-table td { border: 1px solid #333; padding: 8px; text-align: center; }
     .cell-bull { color: #00FF00 !important; font-weight: bold; }
     .cell-bear { color: #FF4B4B !important; font-weight: bold; }
@@ -34,8 +34,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- PERSISTENCE ENGINE (IRONCLAD) ---
-DATA_FILE = "sniper_v90_master_db.json"
+# --- PERSISTENCE ENGINE ---
+DATA_FILE = "sniper_v91_master_db.json"
 
 def load_data():
     defaults = {
@@ -47,7 +47,6 @@ def load_data():
         try:
             with open(DATA_FILE, "r") as f:
                 loaded = json.load(f)
-                # Spajanje osigurava da svaki ključ postoji (No KeyError)
                 return {**defaults, **loaded}
         except: return defaults
     return defaults
@@ -85,7 +84,12 @@ def get_noaa_idx(url):
         return {"now": df.iloc[-1, -1], "yesterday": df.iloc[-2, -1], "last_week": df.iloc[-7, -1]}
     except: return {"now": 0.0, "yesterday": 0.0, "last_week": 0.0}
 
-# --- SIDEBAR (RAZDVOJENI PERSISTENT INPUTS) ---
+def get_run_type():
+    now_utc = datetime.now(pytz.utc)
+    if 6 <= now_utc.hour < 18: return "00z"
+    return "12z"
+
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("🎯 Sniper Hub")
     
@@ -114,10 +118,11 @@ with st.sidebar:
             st.session_state.data.update({"mm_l": ml, "mm_s": ms, "com_l": cl, "com_s": cs, "ret_l": rl, "ret_s": rs})
             save_data(st.session_state.data); st.rerun()
 
-# --- ANALIZA PODATAKA ---
+# --- ANALIZA ---
 current_matrix = fetch_hdd_matrix()
 ao = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.ao.cdas.z1000.19500101_current.csv")
 pna = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.pna.cdas.z500.19500101_current.csv")
+run_info = get_run_type()
 
 # --- MAIN LAYOUT ---
 col_main, col_right = st.columns([4, 1.2])
@@ -125,11 +130,10 @@ col_main, col_right = st.columns([4, 1.2])
 with col_main:
     st.subheader("🌡️ 14-Day Granular PW-HDD Matrix")
     
-    
     if current_matrix:
         prev_matrix = st.session_state.data.get("last_hdd_matrix", {})
         
-        # HTML Tablica za bojanje temeljem delte
+        # HTML Tablica popravljena
         html = "<table class='matrix-table'><tr><th>Grad (Ponder)</th><th>Total (14d)</th>"
         for i in range(14): html += f"<th>D{i+1}</th>"
         html += "</tr>"
@@ -154,15 +158,16 @@ with col_main:
             for i in range(14):
                 d_class = "cell-bull" if curr_v[i] > prev_v[i] else "cell-bear" if curr_v[i] < prev_v[i] else ""
                 html += f"<td class='{d_class}'>{curr_v[i]:.1f}</td>"
-            html += "</tr></table>"
+            html += "</tr>" # Kraj reda
         
+        html += "</table>" # Kraj tablice izvan loopa
         st.markdown(html, unsafe_allow_html=True)
 
         # GRAND TOTAL BOX
         gt_delta = g_total_curr - g_total_prev
         st.markdown(f"""
         <div class='grand-total-box'>
-            <h4 style='margin:0;'>GRAND TOTAL WEIGHTED PW-HDD</h4>
+            <h4 style='margin:0;'>GRAND TOTAL WEIGHTED PW-HDD | Model Run: <strong>{run_info}</strong></h4>
             <h1 style='margin:10px 0; font-size:3rem; color:#008CFF;'>{g_total_curr:.2f} <span class='{"bull-text" if gt_delta > 0 else "bear-text"}' style='font-size:1.5rem;'>({gt_delta:+.2f})</span></h1>
             <div style='display:flex; justify-content:center; gap:30px;'>
                 <span>Short-Term (D1-D7): <strong class='{"bull-text" if st_delta > 0 else "bear-text"}'>{'BULL' if st_delta > 0 else 'BEAR'}</strong></span>
@@ -176,14 +181,13 @@ with col_main:
         save_data(st.session_state.data); st.rerun()
 
     st.subheader("📜 Executive Strategic Narrative")
-    
     e_diff = st.session_state.data.get("eia_curr", 3375) - st.session_state.data.get("eia_5y", 3317)
     st.markdown(f"""
     <div class='summary-narrative'>
-        <strong>ANALIZA:</strong> MM Neto pozicija: <strong>{st.session_state.data.get("mm_l",0) - st.session_state.data.get("mm_s",0):+,}</strong>. 
-        Zalihe: <strong>{e_diff:+} Bcf</strong> vs 5y prosjek.<br>
-        <strong>DIVERGENCIJA:</strong> {'Indikatori usklađeni' if (e_diff < 0 and gt_delta > 0) else 'Modeli slabe usprkos deficitu.'}<br>
-        <strong>SENTIMENT:</strong> AO ({ao['now']:.2f}) i PNA ({pna['now']:.2f}).
+        <strong>ANALIZA DIVERGENCIJA:</strong> Managed Money Neto: <strong>{st.session_state.data.get("mm_l",0) - st.session_state.data.get("mm_s",0):+,}</strong>. 
+        Zalihe bilježe <strong>{e_diff:+} Bcf</strong> odstupanja od prosjeka.<br>
+        Trenutni model ({run_info}) pokazuje {'hladnije' if gt_delta > 0 else 'toplije'} trendove u odnosu na zadnje spremljeno stanje. 
+        Prati korelacije s AO indeksom ({ao['now']:.2f}) za potvrdu snage ovog narativa.
     </div>
     """, unsafe_allow_html=True)
 
@@ -196,9 +200,8 @@ with col_right:
         st.markdown(f"<div style='font-size:0.85rem; margin-bottom:10px;'><a href='{e.link}' target='_blank' style='color:#008CFF; text-decoration:none;'>{e.title}</a></div>", unsafe_allow_html=True)
     
     st.markdown("---")
-    st.subheader("🔗 Intelligence & Social")
+    st.subheader("🔗 Essential Links")
     st.markdown('<a href="https://twitter.com/i/lists/1989752726553579941" class="external-link">MY X LIST</a>', unsafe_allow_html=True)
-    st.markdown('<a href="https://discord.com/channels/1394877262783971409/1394933693537325177" class="external-link">DISCORD</a>', unsafe_allow_html=True)
     st.markdown('<a href="http://celsiusenergy.co/" class="external-link">CELSIUS ENERGY</a>', unsafe_allow_html=True)
     st.markdown('<a href="https://www.wxcharts.com/" class="external-link">WX CHARTS</a>', unsafe_allow_html=True)
     st.markdown('<a href="https://ir.eia.gov/secure/ngs/ngs.html" class="external-link">EIA STORAGE</a>', unsafe_allow_html=True)
