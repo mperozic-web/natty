@@ -10,9 +10,8 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V85", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V87", layout="wide")
 
-# RESTAURACIJA V82/V83 DIZAJNA
 st.markdown("""
     <style>
     .stApp { background-color: #000000; color: #FFFFFF; }
@@ -32,10 +31,12 @@ st.markdown("""
     .external-link:hover { background: #004080; color: #FFFFFF !important; }
     .legend-box { padding: 12px; border: 1px solid #333; background: #111; font-size: 0.8rem; color: #CCC; line-height: 1.4; border-radius: 5px; }
     section[data-testid="stSidebar"] { background-color: #0F0F0F; border-right: 1px solid #333; }
+    /* Matrix Table Style */
+    .hdd-matrix { font-size: 0.75rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- PERSISTENCE ENGINE (JSON) ---
+# --- PERSISTENCE ENGINE ---
 DATA_FILE = "sniper_persistent.json"
 
 def load_data():
@@ -43,7 +44,13 @@ def load_data():
         try:
             with open(DATA_FILE, "r") as f: return json.load(f)
         except: pass
-    return {"eia_v": 3375, "eia_5": 3317, "nc_l": 288456, "nc_s": 424123, "com_l": 512000, "com_s": 380000, "ret_l": 54120, "ret_s": 32100, "last_hdd": 0.0}
+    return {
+        "eia_v": 3375, "eia_5": 3317, 
+        "nc_l": 288456, "nc_s": 424123, 
+        "com_l": 512000, "com_s": 380000, 
+        "ret_l": 54120, "ret_s": 32100, 
+        "last_hdd_matrix": {} # Pohrana 14-dnevnih vrijednosti po gradovima
+    }
 
 def save_data(data):
     with open(DATA_FILE, "w") as f: json.dump(data, f)
@@ -51,26 +58,27 @@ def save_data(data):
 if 'data' not in st.session_state:
     st.session_state.data = load_data()
 
-# --- HDD & NOAA ENGINES ---
-@st.cache_data(ttl=3600)
-def get_hdd():
-    # Proxy-8 s punim težinama
-    cities = {"Chicago": [41.87, -87.62, 0.25], "NYC": [40.71, -74.00, 0.20], "Detroit": [42.33, -83.04, 0.15], "Philly": [39.95, -75.16, 0.10], "Boston": [42.36, -71.05, 0.10]}
-    total = 0
-    try:
-        for c, i in cities.items():
-            r = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={i[0]}&longitude={i[1]}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&forecast_days=14&timezone=auto").json()
-            avg = [(x + y)/2 for x,y in zip(r['daily']['temperature_2m_max'], r['daily']['temperature_2m_min'])]
-            total += sum([max(0, 65 - t) for t in avg]) * i[2]
-        return round(total, 2)
-    except: return 0.0
+# --- HDD ENGINES (Matrix Ready) ---
+# Gradovi poredani po ponderu (Chicago najveći)
+CITIES = {
+    "Chicago": [41.87, -87.62, 0.25],
+    "NYC": [40.71, -74.00, 0.20],
+    "Detroit": [42.33, -83.04, 0.15],
+    "Philly": [39.95, -75.16, 0.10],
+    "Boston": [42.36, -71.05, 0.10]
+}
 
-def get_noaa_idx(url):
+@st.cache_data(ttl=3600)
+def fetch_hdd_matrix():
+    matrix = {}
     try:
-        r = requests.get(url, timeout=10)
-        df = pd.read_csv(io.StringIO(r.content.decode('utf-8')))
-        return {"now": df.iloc[-1, -1], "yesterday": df.iloc[-2, -1], "last_week": df.iloc[-7, -1]}
-    except: return {"now": 0.0, "yesterday": 0.0, "last_week": 0.0}
+        for city, info in CITIES.items():
+            r = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={info[0]}&longitude={info[1]}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&forecast_days=14&timezone=auto").json()
+            # Računanje HDD-a za svaki od 14 dana
+            hdds = [round(max(0, 65 - (mx + mn)/2), 2) for mx, mn in zip(r['daily']['temperature_2m_max'], r['daily']['temperature_2m_min'])]
+            matrix[city] = hdds
+        return matrix
+    except: return {}
 
 # --- SIDEBAR (LIJEVO) ---
 with st.sidebar:
@@ -100,8 +108,7 @@ with st.sidebar:
     st.markdown('<a href="https://capital.com/" class="external-link">CAPITAL.COM</a>', unsafe_allow_html=True)
 
 # --- DATA FETCH ---
-curr_hdd = get_hdd()
-hdd_delta = curr_hdd - st.session_state.data["last_hdd"]
+current_matrix = fetch_hdd_matrix()
 ao = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.ao.cdas.z1000.19500101_current.csv")
 nao = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.nao.cdas.z500.19500101_current.csv")
 pna = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.pna.cdas.z500.19500101_current.csv")
@@ -110,34 +117,73 @@ pna = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.pna.cdas.z5
 col_main, col_right = st.columns([4, 1.2])
 
 with col_main:
-    # 1. HDD QUANTUM VISUALIZER
-    st.markdown("### 🌡️ 14-Day PW-HDD Quantum Index")
-    v1, v2, v3 = st.columns(3)
-    with v1:
-        st.markdown(f"<div class='hdd-quantum-card'><h4>Aktualni Indeks</h4><h2 style='color:#008CFF;'>{curr_hdd}</h2><p>Proxy-8 PW-HDD</p></div>", unsafe_allow_html=True)
-    with v2:
-        d_color = "#00FF00" if hdd_delta >= 0 else "#FF4B4B"
-        st.markdown(f"<div class='hdd-quantum-card'><h4>Model Delta</h4><h2 style='color:{d_color};'>{hdd_delta:+.2f}</h2><p>vs Zadnje Očitanje</p></div>", unsafe_allow_html=True)
-    with v3:
-        if st.button("💾 SPREMI KAO BAZU ZA DELTU"):
-            st.session_state.data["last_hdd"] = curr_hdd
-            save_data(st.session_state.data)
-            st.rerun()
+    # 1. GRANULAR HDD QUANTUM MATRIX
+    st.subheader("🌡️ 14-Day Granular PW-HDD Matrix")
+    
+    if current_matrix:
+        prev_matrix = st.session_state.data.get("last_hdd_matrix", {})
+        
+        # Izrada tablice za prikaz
+        rows = []
+        days_cols = [f"D{i+1}" for i in range(14)]
+        
+        # Prvi red: TOTAL WEIGHTED
+        total_curr = [0.0] * 14
+        total_prev = [0.0] * 14
+        
+        for city, hdds in current_matrix.items():
+            weight = CITIES[city][2]
+            p_hdds = prev_matrix.get(city, hdds) # Ako nema povijesti, koristi trenutno
+            for i in range(14):
+                total_curr[i] += hdds[i] * weight
+                total_prev[i] += p_hdds[i] * weight
+        
+        # Prikaz gradova po ponderu
+        for city in CITIES.keys():
+            hdds = current_matrix[city]
+            p_hdds = prev_matrix.get(city, hdds)
+            row = {"Grad (Ponder)": f"{city} ({CITIES[city][2]})"}
+            for i in range(14):
+                delta = hdds[i] - p_hdds[i]
+                label = "🐂" if delta > 0 else "🐻" if delta < 0 else ""
+                row[days_cols[i]] = f"{hdds[i]} ({delta:+.1f}) {label}"
+            rows.append(row)
+            
+        # Dodavanje TOTAL reda na vrh
+        total_row = {"Grad (Ponder)": "📊 TOTAL WEIGHTED"}
+        for i in range(14):
+            t_delta = total_curr[i] - total_prev[i]
+            t_label = "🐂 BULL" if t_delta > 0 else "🐻 BEAR" if t_delta < 0 else "---"
+            total_row[days_cols[i]] = f"{total_curr[i]:.1f} ({t_delta:+.1f}) {t_label}"
+        
+        rows.insert(0, total_row)
+        df_hdd = pd.DataFrame(rows)
+        st.table(df_hdd)
 
-    # 2. EXECUTIVE NARRATIVE (Divergence Focus)
+    if st.button("💾 SPREMI TRENUTNI MODEL KAO BAZU ZA DELTU"):
+        st.session_state.data["last_hdd_matrix"] = current_matrix
+        save_data(st.session_state.data)
+        st.rerun()
+
+    # 2. EXECUTIVE NARRATIVE
     st.subheader("📜 Executive Strategic Narrative")
     e_diff = st.session_state.data["eia_v"] - st.session_state.data["eia_5"]
     
-    # Divergence Logic
+    # Računanje ukupne delte za narativ
+    total_delta = 0
+    if current_matrix and prev_matrix:
+        total_delta = sum(total_curr) - sum(total_prev)
+    
     div_text = "Indikatori su usklađeni."
-    if e_diff < 0 and hdd_delta < -5: div_text = "DIVERGENCIJA: Zalihe su niske (BULL), ali modeli zatopljuju (BEAR)."
-    elif e_diff > 0 and hdd_delta > 5: div_text = "DIVERGENCIJA: Suficit zaliha (BEAR), ali modeli hlade (BULL)."
+    if e_diff < 0 and total_delta < -2: div_text = "DIVERGENCIJA: Zalihe su niske (BULL), ali modeli zatopljuju (BEAR)."
+    elif e_diff > 0 and total_delta > 2: div_text = "DIVERGENCIJA: Suficit zaliha (BEAR), ali modeli hlade (BULL)."
     
     st.markdown(f"""
     <div class='summary-narrative'>
         <strong>ANALIZA ASIMETRIJE:</strong> Managed Money Neto: <strong>{st.session_state.data["nc_l"] - st.session_state.data["nc_s"]:+,}</strong>. 
-        Zalihe: <strong>{e_diff:+} Bcf</strong> od 5y prosjeka.<br><br>
-        <strong>DIVERGENCIJA:</strong> {div_logic if 'div_logic' in locals() else div_text}<br>
+        Zalihe: <strong>{e_diff:+} Bcf</strong> od 5y prosjeka.<br>
+        <strong>MODEL DELTA:</strong> Ukupna 14-dnevna promjena: <span class='{"bull-text" if total_delta > 0 else "bear-text"}'>{total_delta:+.2f} HDD</span>.<br><br>
+        <strong>DIVERGENCIJA:</strong> {div_text}<br>
         <strong>STATUS:</strong> {'Sustav detektira BULLISH konvergenciju.' if (e_diff < 0 and ao['now'] < 0) else 'Neutralno/Bearish čekanje.'}
     </div>
     """, unsafe_allow_html=True)
@@ -148,9 +194,7 @@ with col_main:
     # 4. INTELLIGENCE RADAR TABS
     st.subheader("📡 Intelligence Radar")
     t_noaa, t_spag = st.tabs(["NOAA WEATHER (Temp & Precip)", "SPAGHETTI TRENDS"])
-    
     with t_noaa:
-        # NOAA Slike vraćene na punu veličinu
         st.image("https://www.cpc.ncep.noaa.gov/products/predictions/610day/610temp.new.gif", caption="6-10d Temp")
         st.image("https://www.cpc.ncep.noaa.gov/products/predictions/814day/814temp.new.gif", caption="8-14d Temp")
         st.image("https://www.cpc.ncep.noaa.gov/products/predictions/610day/610prcp.new.gif", caption="6-10d Precip")
@@ -180,7 +224,7 @@ with col_main:
                 st.write(f"D: {d['now']-d['yesterday']:+.2f} | T: {d['now']-d['last_week']:+.2f}")
                 st.markdown(f"<div class='legend-box'>{leg}</div>", unsafe_allow_html=True)
 
-# --- DESNA STRANA (Intel & Links) ---
+# --- DESNA STRANA ---
 with col_right:
     st.subheader("📰 Google Intel")
     feed = feedparser.parse("https://news.google.com/rss/search?q=Natural+gas+OR+natgas+when:7d&hl=en-US&gl=US&ceid=US:en")
@@ -194,13 +238,3 @@ with col_right:
     st.markdown('<a href="https://www.wxcharts.com/" class="external-link">WX CHARTS</a>', unsafe_allow_html=True)
     st.markdown('<a href="https://ir.eia.gov/secure/ngs/ngs.html" class="external-link">EIA STORAGE REPORT</a>', unsafe_allow_html=True)
     st.markdown('<a href="https://discord.com/channels/1394877262783971409/1394933693537325177" class="external-link">DISCORD GROUP</a>', unsafe_allow_html=True)
-    
-    st.markdown("---")
-    st.markdown(f"""
-    <div style='font-size:0.7rem; color:#666;'>
-        <strong>Izvor podataka:</strong><br>
-        HDD: Open-Meteo GFS 00z/12z<br>
-        Indices: NOAA CPC<br>
-        Persistence: Local JSON Engine
-    </div>
-    """, unsafe_allow_html=True)
