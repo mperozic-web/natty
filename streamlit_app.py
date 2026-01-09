@@ -8,16 +8,16 @@ import feedparser
 import streamlit.components.v1 as components
 from datetime import datetime, timedelta
 import pytz
-from openai import OpenAI
+import google.generativeai as genai
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V99.2", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V100 - Gemini Free", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #000000; color: #FFFFFF; }
     h2, h3 { color: #FFFFFF !important; font-weight: 800 !important; border-bottom: 1px solid #333; }
-    .ai-analysis-box { font-size: 1.1rem; line-height: 1.7; color: #EEEEEE; border: 2px solid #8A2BE2; padding: 25px; background-color: #0D051A; border-radius: 10px; margin-bottom: 25px; border-left: 10px solid #8A2BE2; }
+    .ai-analysis-box { font-size: 1.1rem; line-height: 1.7; color: #EEEEEE; border: 2px solid #00FF00; padding: 25px; background-color: #051A05; border-radius: 10px; margin-bottom: 25px; border-left: 10px solid #00FF00; }
     .bull-text { color: #00FF00 !important; font-weight: bold; }
     .bear-text { color: #FF4B4B !important; font-weight: bold; }
     .sidebar-box { padding: 15px; border: 1px solid #222; border-radius: 5px; margin-bottom: 15px; background: #0A0A0A; }
@@ -26,31 +26,27 @@ st.markdown("""
     .matrix-table th, .matrix-table td { border: 1px solid #333; padding: 6px; text-align: center; }
     .cell-bull { color: #00FF00 !important; font-weight: bold; }
     .cell-bear { color: #FF4B4B !important; font-weight: bold; }
-    .term-highlight { background-color: rgba(0, 255, 0, 0.12) !important; }
+    .term-highlight { background-color: rgba(0, 255, 0, 0.1) !important; }
     section[data-testid="stSidebar"] { background-color: #0F0F0F; border-right: 1px solid #333; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- PERSISTENCE (UTF-8 SAFE) ---
-DATA_FILE = "sniper_v99_neural.json"
-
+# --- PERSISTENCE ---
+DATA_FILE = "sniper_v100_data.json"
 def load_data():
     defaults = {"eia_curr": 3375, "eia_prev": 3413, "eia_5y": 3317, "mm_l": 0, "mm_s": 0, "com_l": 0, "com_s": 0, "ret_l": 0, "ret_s": 0, "last_hdd_matrix": {}}
     if os.path.exists(DATA_FILE):
         try:
-            with open(DATA_FILE, "r", encoding='utf-8') as f:
-                loaded = json.load(f)
-                return {**defaults, **loaded}
+            with open(DATA_FILE, "r", encoding='utf-8') as f: return {**defaults, **json.load(f)}
         except: return defaults
     return defaults
 
 def save_data(data):
-    with open(DATA_FILE, "w", encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False)
+    with open(DATA_FILE, "w", encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False)
 
 if 'data' not in st.session_state: st.session_state.data = load_data()
 
-# --- ENGINES ---
+# --- HDD & NOAA ENGINES ---
 CITIES = {"Chicago": [41.87, -87.62, 0.25], "NYC": [40.71, -74.00, 0.20], "Detroit": [42.33, -83.04, 0.15], "Philly": [39.95, -75.16, 0.10], "Boston": [42.36, -71.05, 0.10]}
 
 @st.cache_data(ttl=3600)
@@ -73,30 +69,26 @@ def get_noaa_idx(url):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("AI Authentication")
-    api_key_input = st.text_input("OpenAI API Key", type="password")
+    st.header("Free AI Engine (Google Gemini)")
+    gemini_key = st.text_input("Unesi Gemini API Key", type="password")
     
     st.header("Sniper Command")
-    with st.form("storage_v99"):
+    with st.form("storage_v100"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
-        st.subheader("Storage Box")
-        ec = st.number_input("Curr Bcf", value=st.session_state.data.get("eia_curr", 3375))
-        ep = st.number_input("Prev Bcf", value=st.session_state.data.get("eia_prev", 3413))
-        e5 = st.number_input("5y Bcf", value=st.session_state.data.get("eia_5y", 3317))
+        ec = st.number_input("Current Bcf", value=st.session_state.data.get("eia_curr", 3375))
+        e5 = st.number_input("5y Avg Bcf", value=st.session_state.data.get("eia_5y", 3317))
         st.markdown("</div>", unsafe_allow_html=True)
         if st.form_submit_button("SAVE STORAGE"):
-            st.session_state.data.update({"eia_curr": ec, "eia_prev": ep, "eia_5y": e5})
+            st.session_state.data.update({"eia_curr": ec, "eia_5y": e5})
             save_data(st.session_state.data); st.rerun()
             
-    with st.form("cot_v99"):
+    with st.form("cot_v100"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
-        st.subheader("COT Positioning")
         ml, ms = st.number_input("MM Long", value=st.session_state.data.get("mm_l",0)), st.number_input("MM Short", value=st.session_state.data.get("mm_s",0))
         cl, cs = st.number_input("Comm Long", value=st.session_state.data.get("com_l",0)), st.number_input("Comm Short", value=st.session_state.data.get("com_s",0))
-        rl, rs = st.number_input("Ret Long", value=st.session_state.data.get("ret_l",0)), st.number_input("Ret Short", value=st.session_state.data.get("ret_s",0))
         st.markdown("</div>", unsafe_allow_html=True)
         if st.form_submit_button("SAVE COT"):
-            st.session_state.data.update({"mm_l": ml, "mm_s": ms, "com_l": cl, "com_s": cs, "ret_l": rl, "ret_s": rs})
+            st.session_state.data.update({"mm_l": ml, "mm_s": ms, "com_l": cl, "com_s": cs})
             save_data(st.session_state.data); st.rerun()
 
 # --- ANALIZA ---
@@ -121,7 +113,7 @@ with col_m:
             std += (sum(cv[:7])-sum(pv[:7]))*w; ted += (sum(cv[7:])-sum(pv[7:]))*w
             st_s = "term-highlight" if st_avg > lt_avg else ""; lt_s = "term-highlight" if lt_avg > st_avg else ""
             c_cl = "cell-bull" if tc > tp else "cell-bear" if tc < tp else ""
-            html += f"<tr><td>{city} ({w})</td><td class='{c_cl}'>{tc:.1f}</td><td>{st_avg:.1f}</td><td>{lt_avg:.1f}</td>"
+            html += f"<tr><td>{city}</td><td class='{c_cl}'>{tc:.1f}</td><td>{st_avg:.1f}</td><td>{lt_avg:.1f}</td>"
             for i in range(14):
                 d_cl = "cell-bull" if cv[i] > pv[i] else "cell-bear" if cv[i] < pv[i] else ""
                 h_s = st_s if i < 7 else lt_s
@@ -135,37 +127,30 @@ with col_m:
         st.session_state.data["last_hdd_matrix"] = curr_mx
         save_data(st.session_state.data); st.rerun()
 
-    # AI STRATEGIC ANALYST
-    st.subheader("AI Strategic Analyst")
-    if st.button("RUN NEURAL ASYMMETRY ANALYSIS"):
-        if not api_key_input:
-            st.error("Please provide a valid OpenAI API Key!")
+    # AI ANALYST (GEMINI FREE)
+    st.subheader("🤖 Gemini Strategic Analyst")
+    if st.button("🚀 POKRENI BESPLATNU AI ANALIZU"):
+        if not gemini_key:
+            st.error("Prvo zalijepi Gemini API Key iz Google AI Studio!")
         else:
-            client = OpenAI(api_key=api_key_input)
-            # Prompt bez emojija radi sigurnosti enkodinga
-            prompt = (f"Analyze NatGas: EIA Current {st.session_state.data['eia_curr']}, "
-                      f"5y Avg {st.session_state.data['eia_5y']}. "
-                      f"COT Net MM: {st.session_state.data['mm_l']-st.session_state.data['mm_s']}. "
-                      f"HDD Total: {gc:.2f}, Delta: {gtd:+.2f}. "
-                      f"AO Index: {ao['now']}. Find asymmetries.")
             try:
-                with st.spinner("Analyzing market structure..."):
-                    resp = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "system", "content": "You are a professional NatGas trading advisor. Direct, rational, no fluff."},
-                                  {"role": "user", "content": prompt}]
-                    )
-                    st.markdown(f"<div class='ai-analysis-box'>{resp.choices[0].message.content}</div>", unsafe_allow_html=True)
+                genai.configure(api_key=gemini_key)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                prompt = (f"Analiziraj NatGas trading: EIA zalihe su na {st.session_state.data['eia_curr']} Bcf, "
+                          f"deficit vs 5y je {st.session_state.data['eia_curr'] - st.session_state.data['eia_5y']} Bcf. "
+                          f"Managed Money Neto pozicija: {st.session_state.data['mm_l'] - st.session_state.data['mm_s']}. "
+                          f"HDD model je {gc:.2f} uz promjenu od {gtd:+.2f}. "
+                          f"AO Indeks: {ao['now']}. Nađi asimetriju i divergencije.")
+                
+                with st.spinner("Gemini skenira horizonte..."):
+                    response = model.generate_content(prompt)
+                    st.markdown(f"<div class='ai-analysis-box'>{response.text}</div>", unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"AI Error: {e}")
 
     components.html('<div style="height:450px;"><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"autosize": true, "symbol": "CAPITALCOM:NATURALGAS", "interval": "D", "theme": "dark", "container_id": "tv"});</script><div id="tv"></div></div>', height=450)
 
 with col_r:
-    st.subheader("Google Intel Feed")
+    st.subheader("📰 Google Intel Feed")
     f = feedparser.parse("https://news.google.com/rss/search?q=Natural+gas+when:7d&hl=en-US&gl=US&ceid=US:en")
     for e in f.entries[:6]: st.markdown(f"<div style='font-size:0.85rem; margin-bottom:10px;'><a href='{e.link}' target='_blank' style='color:#008CFF; text-decoration:none;'>{e.title}</a></div>", unsafe_allow_html=True)
-    st.markdown("---")
-    st.subheader("Links")
-    st.markdown('<a href="https://twitter.com/i/lists/1989752726553579941" class="external-link">MY X LIST</a>', unsafe_allow_html=True)
-    st.markdown('<a href="http://celsiusenergy.co/" class="external-link">CELSIUS ENERGY</a>', unsafe_allow_html=True)
