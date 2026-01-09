@@ -3,4 +3,4 @@ pandas
 requests
 feedparser
 pytz
-openai
+google-generativeai
