@@ -3,4 +3,4 @@ pandas
 requests
 feedparser
 pytz
-google-generativeai
+google-generativeai>=0.8.3
