@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V94", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V95", layout="wide")
 
 st.markdown("""
     <style>
@@ -37,23 +37,19 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- PERSISTENCE ENGINE (KeyError Proof) ---
-DATA_FILE = "sniper_v94_final.json"
+# --- PERSISTENCE ENGINE (V95) ---
+DATA_FILE = "sniper_v95_final_db.json"
 
-def get_clean_defaults():
-    return {
+def load_data():
+    defaults = {
         "eia_curr": 3375, "eia_prev": 3413, "eia_5y": 3317,
         "mm_l": 0, "mm_s": 0, "com_l": 0, "com_s": 0, "ret_l": 0, "ret_s": 0,
         "last_hdd_matrix": {}
     }
-
-def load_data():
-    defaults = get_clean_defaults()
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
                 loaded = json.load(f)
-                # Spajanje osigurava da svi ključevi postoje
                 return {**defaults, **loaded}
         except: return defaults
     return defaults
@@ -106,14 +102,14 @@ def get_countdown(day_idx, hour, minute):
     diff = target - now
     return f"{diff.days}d {diff.seconds // 3600}h {(diff.seconds // 60) % 60}m"
 
-# --- SIDEBAR (Persistent Inputs) ---
+# --- SIDEBAR (RAZDVOJENI FORMS) ---
 with st.sidebar:
-    st.header("🎯 Sniper Hub")
+    st.header("🎯 Sniper Master Console")
     
-    with st.form("storage_f"):
+    with st.form("storage_v95"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
         st.subheader("📦 Storage Box")
-        st.write(f"EIA Countdown: {get_countdown(3, 16, 30)}")
+        st.write(f"EIA Release: {get_countdown(3, 16, 30)}")
         ec = st.number_input("Curr Bcf", value=st.session_state.data.get("eia_curr", 3375))
         ep = st.number_input("Prev Bcf", value=st.session_state.data.get("eia_prev", 3413))
         e5 = st.number_input("5y Bcf", value=st.session_state.data.get("eia_5y", 3317))
@@ -122,10 +118,10 @@ with st.sidebar:
             st.session_state.data.update({"eia_curr": ec, "eia_prev": ep, "eia_5y": e5})
             save_data(st.session_state.data); st.rerun()
 
-    with st.form("cot_f"):
+    with st.form("cot_v95"):
         st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
         st.subheader("🏛️ COT Positioning")
-        st.write(f"COT Countdown: {get_countdown(4, 21, 30)}")
+        st.write(f"COT Release: {get_countdown(4, 21, 30)}")
         c1, c2 = st.columns(2)
         ml = c1.number_input("MM Long", value=st.session_state.data.get("mm_l", 0))
         ms = c2.number_input("MM Short", value=st.session_state.data.get("mm_s", 0))
@@ -138,30 +134,30 @@ with st.sidebar:
             st.session_state.data.update({"mm_l": ml, "mm_s": ms, "com_l": cl, "com_s": cs, "ret_l": rl, "ret_s": rs})
             save_data(st.session_state.data); st.rerun()
 
-    st.subheader("🔗 Brokers")
+    st.subheader("🔗 Links")
     st.markdown('<a href="https://capital.com/" class="external-link">CAPITAL.COM</a>', unsafe_allow_html=True)
-    st.markdown('<a href="https://www.plus500.com/" class="external-link">PLUS 500</a>', unsafe_allow_html=True)
 
 # --- ANALIZA ---
 curr_mx = fetch_hdd_matrix()
 ao, nao, pna = get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.ao.cdas.z1000.19500101_current.csv"), get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.nao.cdas.z500.19500101_current.csv"), get_noaa_idx("https://ftp.cpc.ncep.noaa.gov/cwlinks/norm.daily.pna.cdas.z500.19500101_current.csv")
-run_info = get_run_tag()
+run_tag = get_run_tag()
 
-# --- MAIN LAYOUT ---
+# --- MAIN ---
 col_m, col_r = st.columns([4, 1.2])
 
 with col_m:
-    # 1. HDD MATRIX (BULL/BEAR COLORING)
+    # 1. GRANULAR HDD MATRIX
     st.subheader("🌡️ 14-Day Granular PW-HDD Matrix")
     if curr_mx:
         prev_mx = st.session_state.data.get("last_hdd_matrix", {})
         html = "<table class='matrix-table'><tr><th>Grad (Ponder)</th><th>Total (14d)</th>"
         for i in range(14): html += f"<th>D{i+1}</th>"
         html += "</tr>"
-        gc, gp, std, ted = 0, 0, 0, 0
+        
+        g_curr, g_prev, std, ted = 0, 0, 0, 0
         for city, info in CITIES.items():
             w = info[2]; cv = curr_mx.get(city, [0]*14); pv = prev_mx.get(city, cv)
-            tc, tp = sum(cv), sum(pv); gc += tc * w; gp += tp * w
+            tc, tp = sum(cv), sum(pv); g_curr += tc * w; g_prev += tp * w
             std += (sum(cv[:7])-sum(pv[:7]))*w; ted += (sum(cv[7:])-sum(pv[7:]))*w
             c_cl = "cell-bull" if tc > tp else "cell-bear" if tc < tp else ""
             html += f"<tr><td>{city} ({w})</td><td class='{c_cl}'>{tc:.1f}</td>"
@@ -170,63 +166,83 @@ with col_m:
                 html += f"<td class='{d_cl}'>{cv[i]:.1f}</td>"
             html += "</tr>"
         html += "</table>"; st.markdown(html, unsafe_allow_html=True)
-        gtd = gc - gp
-        st.markdown(f"<div class='grand-total-box'><h4>GRAND TOTAL PW-HDD | Model Run: <strong>{run_info}</strong></h4><h1 style='margin:10px 0; font-size:3rem; color:#008CFF;'>{gc:.2f} <span class='{'bull-text' if gtd > 0 else 'bear-text'}' style='font-size:1.5rem;'>({gtd:+.2f})</span></h1><div style='display:flex; justify-content:center; gap:30px;'><span>Short-Term (D1-7): <strong class='{'bull-text' if std > 0 else 'bear-text'}'>{'BULL' if std > 0 else 'BEAR'}</strong></span><span>Tail-End (D8-14): <strong class='{'bull-text' if ted > 0 else 'bear-text'}'>{'BULL' if ted > 0 else 'BEAR'}</strong></span></div></div>", unsafe_allow_html=True)
+        
+        gtd = g_curr - g_prev
+        st.markdown(f"""
+        <div class='grand-total-box'>
+            <h4 style='margin:0;'>GRAND TOTAL PW-HDD | Model Run: <strong>{run_tag}</strong></h4>
+            <h1 style='margin:10px 0; font-size:3rem; color:#008CFF;'>{g_curr:.2f} <span class='{"bull-text" if gtd > 0 else "bear-text"}' style='font-size:1.5rem;'>({gtd:+.2f})</span></h1>
+            <div style='display:flex; justify-content:center; gap:30px;'>
+                <span>Short-Term (D1-7): <strong class='{"bull-text" if std > 0 else "bear-text"}'>{'BULL' if std > 0 else 'BEAR'}</strong></span>
+                <span>Tail-End (D8-14): <strong class='{"bull-text" if ted > 0 else "bear-text"}'>{'BULL' if ted > 0 else 'BEAR'}</strong></span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    if st.button("💾 SPREMI TRENUTNI MODEL KAO REFERENTNU BAZU"):
+    if st.button("💾 SPREMI MODEL KAO BAZU ZA DELTU"):
         st.session_state.data["last_hdd_matrix"] = curr_mx
         save_data(st.session_state.data); st.rerun()
 
-    # 2. EXECUTIVE NARRATIVE
-    st.subheader("📜 Executive Strategic Narrative")
+    # 2. EXECUTIVE SUMMARY
     edif = st.session_state.data.get("eia_curr", 0) - st.session_state.data.get("eia_5y", 0)
     st.markdown(f"""
     <div class='summary-narrative'>
         <strong>ANALIZA ZALIHA:</strong> Deficit/Suficit: <strong>{edif:+} Bcf</strong> vs 5y prosjek. 
-        Promjena od prošli put: <strong>{st.session_state.data.get('eia_curr',0)-st.session_state.data.get('eia_prev',0):+} Bcf</strong>.<br>
-        <strong>DIVERGENCIJA:</strong> {'Zalihe i vrijeme su usklađeni' if (edif < 0 and gtd > 0) else 'Modeli pokazuju zatopljenje usprkos deficitu.' if (edif < 0 and gtd < 0) else 'Visoke zalihe ali modeli hlade.'}<br>
-        <strong>SENTIMENT:</strong> MM Neto pozicija ({st.session_state.data.get('mm_l',0)-st.session_state.data.get('mm_s',0):+,}) i AO ({ao['now']:.2f}).
+        Promjena WoW: <strong>{st.session_state.data.get('eia_curr',0)-st.session_state.data.get('eia_prev',0):+} Bcf</strong>.<br>
+        <strong>DIVERGENCIJA:</strong> {'Indikatori usklađeni' if (edif < 0 and gtd > 0) else 'Modeli slabe usprkos deficitu.'}<br>
+        <strong>SENTIMENT:</strong> Managed Money Neto ({st.session_state.data.get('mm_l',0)-st.session_state.data.get('mm_s',0):+,}) i AO ({ao['now']:.2f}).
     </div>
     """, unsafe_allow_html=True)
 
-    # 3. TRADINGVIEW
     components.html('<div style="height:450px;"><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"autosize": true, "symbol": "CAPITALCOM:NATURALGAS", "interval": "D", "theme": "dark", "container_id": "tv"});</script><div id="tv"></div></div>', height=450)
 
-    # 4. RADAR TABS
+    # 3. RADAR TABS (NOAA, Spaghetti, Pivotal)
     st.subheader("📡 Intelligence Radar")
-    t1, t2, t3 = st.tabs(["NOAA WEATHER (2x2)", "SPAGHETTI INDICES", "PIVOTAL ANALYTICS"])
+    t1, t2, t3 = st.tabs(["NOAA WEATHER (2x2 Grid)", "SPAGHETTI INDICES", "PIVOTAL ANALYTICS"])
+    
     with t1:
         c1, c2 = st.columns(2)
-        with c1: st.image("https://www.cpc.ncep.noaa.gov/products/predictions/610day/610temp.new.gif", caption="6-10d Temp"); st.image("https://www.cpc.ncep.noaa.gov/products/predictions/610day/610prcp.new.gif", caption="6-10d Precip")
-        with c2: st.image("https://www.cpc.ncep.noaa.gov/products/predictions/814day/814temp.new.gif", caption="8-14d Temp"); st.image("https://www.cpc.ncep.noaa.gov/products/predictions/814day/814prcp.new.gif", caption="8-14d Precip")
+        with c1:
+            st.image("https://www.cpc.ncep.noaa.gov/products/predictions/610day/610temp.new.gif", caption="6-10d Temp")
+            st.image("https://www.cpc.ncep.noaa.gov/products/predictions/610day/610prcp.new.gif", caption="6-10d Precip")
+        with c2:
+            st.image("https://www.cpc.ncep.noaa.gov/products/predictions/814day/814temp.new.gif", caption="8-14d Temp")
+            st.image("https://www.cpc.ncep.noaa.gov/products/predictions/814day/814prcp.new.gif", caption="8-14d Precip")
+
     with t2:
-        idx_c = st.columns(3); ids = [("AO", ao), ("NAO", nao), ("PNA", pna)]; us = ["https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_ao_index/ao.sprd2.gif", "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/pna/nao.sprd2.gif", "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/pna/pna.sprd2.gif"]
-        for i, (n, d) in enumerate(ids):
+        idx_c = st.columns(3)
+        ids = [("AO", ao, "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_ao_index/ao.sprd2.gif", "Ispod -2.0: EXTREME BULLISH (Pucanje vrtloga, hladnoća na jug)."),
+               ("NAO", nao, "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/pna/nao.sprd2.gif", "Ispod -1.5: EXTREME BULLISH (Blokada Atlantika, hladnoća na istok)."),
+               ("PNA", pna, "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/pna/pna.sprd2.gif", "Iznad 1.5: EXTREME BULLISH (Dolina na istoku SAD-a).")]
+        for i, (n, d, u, l) in enumerate(ids):
             with idx_c[i]:
-                st.image(us[i]); gr, cs = get_grad(d['now'], n)
+                st.image(u)
+                gr, cs = get_grad(d['now'], n)
                 st.markdown(f"**{n}: {d['now']:.2f}** | <span class='{cs}'>{gr}</span>", unsafe_allow_html=True)
-                st.write(f"D: {d['now']-d['yesterday']:+.2f} | T: {d['now']-d['last_week']:+.2f}")
-                st.markdown(f"<div class='legend-box'>Sentiment {n} indeksa.</div>", unsafe_allow_html=True)
+                st.write(f"Dan: {d['now']-d['yesterday']:+.2f} | Tjedan: {d['now']-d['last_week']:+.2f}")
+                st.markdown(f"<div class='legend-box'>{l}</div>", unsafe_allow_html=True)
+
     with t3:
-        st.markdown("### 🔭 Pivotal Ensemble Analytics")
+        st.markdown("### 🔭 Strategic Ensemble Analytics")
+        st.info("Ove karte prikazuju anomalije visine (Z500) i temperature koje upravljaju kretanjem hladnog zraka.")
         c1, c2 = st.columns(2)
         with c1:
+            # GEFS 500mb Anomalies (Steering Flow)
             st.image("https://origin.cpc.ncep.noaa.gov/products/people/mchen/CFSv2_mflux/html/images/z500_ano_610.gif", caption="GEFS 500mb Height Anomalies")
-            st.markdown("<div class='legend-box'>Ridge na zapadu + Trough na istoku = BULL.</div>", unsafe_allow_html=True)
+            st.markdown("<div class='legend-box'><strong>Ridge na zapadu + Trough na istoku = BULL.</strong> Tamnoplave doline (troughs) na istoku SAD-a donose ekstremnu potražnju.</div>", unsafe_allow_html=True)
         with c2:
-            st.image("https://origin.cpc.ncep.noaa.gov/products/people/mchen/CFSv2_mflux/html/images/t2m_ano_610.gif", caption="ECMWF/GEFS 2m Temp Anomalies")
-            st.markdown("<div class='legend-box'>Plava boja iznad SAD-a = Hladna anomalija (BULL).</div>", unsafe_allow_html=True)
+            # Temperature Anomalies
+            st.image("https://origin.cpc.ncep.noaa.gov/products/people/mchen/CFSv2_mflux/html/images/t2m_ano_610.gif", caption="CFSv2 2m Temp Anomalies (Global Ensembles)")
+            st.markdown("<div class='legend-box'><strong>Plava boja iznad SAD-a = Hladna anomalija (BULL).</strong> Intenzitet plave boje direktno korelira s agresivnošću 'Long' pozicija.</div>", unsafe_allow_html=True)
 
 with col_r:
     st.subheader("📰 Google Intel Feed")
     f = feedparser.parse("https://news.google.com/rss/search?q=Natural+gas+OR+natgas+when:7d&hl=en-US&gl=US&ceid=US:en")
     for e in f.entries[:6]: st.markdown(f"<div style='font-size:0.85rem; margin-bottom:10px;'><a href='{e.link}' target='_blank' style='color:#008CFF; text-decoration:none;'>{e.title}</a></div>", unsafe_allow_html=True)
     st.markdown("---")
-    st.subheader("📱 Social Intelligence")
+    st.subheader("📱 Social & Intelligence")
     st.markdown('<a href="https://twitter.com/i/lists/1989752726553579941" class="external-link">MY X LIST</a>', unsafe_allow_html=True)
     st.markdown('<a href="https://discord.com/channels/1394877262783971409/1394933693537325177" class="external-link">DISCORD</a>', unsafe_allow_html=True)
-    st.markdown("---")
-    st.subheader("🔭 Intelligence Hub")
     st.markdown('<a href="http://celsiusenergy.co/" class="external-link">CELSIUS ENERGY</a>', unsafe_allow_html=True)
     st.markdown('<a href="https://www.wxcharts.com/" class="external-link">WX CHARTS</a>', unsafe_allow_html=True)
-    st.markdown('<a href="https://ir.eia.gov/secure/ngs/ngs.html" class="external-link">EIA STORAGE</a>', unsafe_allow_html=True)
+    st.markdown('<a href="https://ir.eia.gov/secure/ngs/ngs.html" class="external-link">EIA STORAGE LIVE</a>', unsafe_allow_html=True)
