@@ -11,13 +11,13 @@ import pytz
 from groq import Groq
 
 # --- KONFIGURACIJA ---
-st.set_page_config(page_title="NatGas Sniper V103 - Groq", layout="wide")
+st.set_page_config(page_title="NatGas Sniper V104", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #000000; color: #FFFFFF; }
     h2, h3 { color: #FFFFFF !important; font-weight: 800 !important; border-bottom: 1px solid #333; }
-    .ai-analysis-box { font-size: 1.1rem; line-height: 1.7; color: #EEEEEE; border: 2px solid #FF8C00; padding: 25px; background-color: #1A0F05; border-radius: 10px; margin-bottom: 25px; border-left: 10px solid #FF8C00; }
+    .ai-analysis-box { font-size: 1.15rem; line-height: 1.8; color: #EEEEEE; border: 2px solid #FF8C00; padding: 25px; background-color: #1A0F05; border-radius: 10px; margin-bottom: 25px; border-left: 10px solid #FF8C00; }
     .bull-text { color: #00FF00 !important; font-weight: bold; }
     .bear-text { color: #FF4B4B !important; font-weight: bold; }
     .sidebar-box { padding: 15px; border: 1px solid #222; border-radius: 5px; margin-bottom: 15px; background: #0A0A0A; }
@@ -26,13 +26,13 @@ st.markdown("""
     .matrix-table th, .matrix-table td { border: 1px solid #333; padding: 6px; text-align: center; }
     .cell-bull { color: #00FF00 !important; font-weight: bold; }
     .cell-bear { color: #FF4B4B !important; font-weight: bold; }
-    .term-highlight { background-color: rgba(255, 140, 0, 0.1) !important; }
+    .term-highlight { background-color: rgba(255, 140, 0, 0.12) !important; }
     section[data-testid="stSidebar"] { background-color: #0F0F0F; border-right: 1px solid #333; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- PERSISTENCE ---
-DATA_FILE = "sniper_v103_data.json"
+DATA_FILE = "sniper_v104_data.json"
 def load_data():
     defaults = {"eia_curr": 3375, "eia_5y": 3317, "mm_l": 0, "mm_s": 0, "com_l": 0, "com_s": 0, "last_hdd_matrix": {}}
     if os.path.exists(DATA_FILE):
@@ -46,7 +46,7 @@ def save_data(data):
 
 if 'data' not in st.session_state: st.session_state.data = load_data()
 
-# --- HDD ENGINES ---
+# --- ENGINES ---
 CITIES = {"Chicago": [41.87, -87.62, 0.25], "NYC": [40.71, -74.00, 0.20], "Detroit": [42.33, -83.04, 0.15], "Philly": [39.95, -75.16, 0.10], "Boston": [42.36, -71.05, 0.10]}
 
 @st.cache_data(ttl=3600)
@@ -66,14 +66,14 @@ with st.sidebar:
     groq_key = st.text_input("Groq API Key", type="password")
     
     st.header("Sniper Command")
-    with st.form("storage_v103"):
+    with st.form("storage_v104"):
         ec = st.number_input("Current Bcf", value=st.session_state.data.get("eia_curr", 3375))
         e5 = st.number_input("5y Avg Bcf", value=st.session_state.data.get("eia_5y", 3317))
         if st.form_submit_button("SAVE STORAGE"):
             st.session_state.data.update({"eia_curr": ec, "eia_5y": e5})
             save_data(st.session_state.data); st.rerun()
             
-    with st.form("cot_v103"):
+    with st.form("cot_v104"):
         ml, ms = st.number_input("MM Long", value=st.session_state.data.get("mm_l",0)), st.number_input("MM Short", value=st.session_state.data.get("mm_s",0))
         if st.form_submit_button("SAVE COT"):
             st.session_state.data.update({"mm_l": ml, "mm_s": ms})
@@ -113,28 +113,36 @@ with col_m:
         st.session_state.data["last_hdd_matrix"] = curr_mx
         save_data(st.session_state.data); st.rerun()
 
-    # AI ANALYST (GROQ LLAMA 3)
-    st.subheader("🤖 Neural Asymmetry Analyst (Groq)")
-    if st.button("🚀 POKRENI TAKTIČKU ANALIZU"):
+    # AI ANALYST (GROQ Llama 3.3)
+    st.subheader("🤖 Neural Tactical Analyst")
+    if st.button("🚀 POKRENI ANALIZU ASIMETRIJE"):
         if not groq_key:
-            st.error("Unesi Groq API Key u sidebaru!")
+            st.error("Unesi Groq API Key!")
         else:
             try:
                 client = Groq(api_key=groq_key)
-                prompt = (f"Analyze NatGas: EIA {st.session_state.data['eia_curr']} Bcf, "
+                prompt = (f"Analyze Natural Gas: EIA Storage {st.session_state.data['eia_curr']} Bcf, "
                           f"5y Deficit {st.session_state.data['eia_curr'] - st.session_state.data['eia_5y']} Bcf. "
-                          f"COT MM Net: {st.session_state.data['mm_l'] - st.session_state.data['mm_s']}. "
+                          f"COT Managed Money Net: {st.session_state.data['mm_l'] - st.session_state.data['mm_s']}. "
                           f"HDD Matrix Total {gc:.2f}, Delta {gtd:+.2f}. "
-                          f"Focus on the gap between positioning and thermal demand.")
+                          f"Identify market traps and asymmetries.")
                 
-                with st.spinner("Llama 3 skenira asimetriju..."):
+                with st.spinner("Llama 3.3 skenira asimetriju..."):
                     chat_completion = client.chat.completions.create(
                         messages=[{"role": "user", "content": prompt}],
-                        model="llama3-70b-8192",
+                        model="llama-3.3-70b-versatile",
                     )
                     st.markdown(f"<div class='ai-analysis-box'>{chat_completion.choices[0].message.content}</div>", unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"Groq Error: {e}")
+                st.info("Pokušavam s bržim modelom...")
+                try:
+                    chat_completion = client.chat.completions.create(
+                        messages=[{"role": "user", "content": prompt}],
+                        model="llama-3.1-8b-instant",
+                    )
+                    st.markdown(f"<div class='ai-analysis-box'>{chat_completion.choices[0].message.content}</div>", unsafe_allow_html=True)
+                except: st.error("Kritična greška s AI modulom.")
 
     components.html('<div style="height:450px;"><script src="https://s3.tradingview.com/tv.js"></script><script>new TradingView.widget({"autosize": true, "symbol": "CAPITALCOM:NATURALGAS", "interval": "D", "theme": "dark", "container_id": "tv"});</script><div id="tv"></div></div>', height=450)
 
@@ -142,3 +150,8 @@ with col_r:
     st.subheader("📰 Google Intel Feed")
     f = feedparser.parse("https://news.google.com/rss/search?q=Natural+gas+when:7d&hl=en-US&gl=US&ceid=US:en")
     for e in f.entries[:6]: st.markdown(f"<div style='font-size:0.85rem; margin-bottom:10px;'><a href='{e.link}' target='_blank' style='color:#008CFF; text-decoration:none;'>{e.title}</a></div>", unsafe_allow_html=True)
+    st.markdown("---")
+    st.subheader("🔗 Essential Hub")
+    st.markdown('<a href="https://twitter.com/i/lists/1989752726553579941" class="external-link">MY X LIST</a>', unsafe_allow_html=True)
+    st.markdown('<a href="http://celsiusenergy.co/" class="external-link">CELSIUS ENERGY</a>', unsafe_allow_html=True)
+    st.markdown('<a href="https://ir.eia.gov/secure/ngs/ngs.html" class="external-link">EIA STORAGE</a>', unsafe_allow_html=True)
